@@ -1,0 +1,10 @@
+/.vscode
+/ai_usage.db
+/aliases.db
+/cats.json
+/chat.log
+/data
+/docs
+/emote_usage.db
+/profiles.db
+/__pycache__
