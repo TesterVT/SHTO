@@ -8,3 +8,5 @@
 /emote_usage.db
 /profiles.db
 /__pycache__
+modules/weather.py
+modules/AI.py
