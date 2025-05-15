@@ -3,6 +3,26 @@ import random
 import asyncio
 import time
 from twitchio.ext import commands
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+TIMER_FILE = "cat_timers.json"
+
+def load_timers():
+    try:
+        with open(TIMER_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_timers(data):
+    with open(TIMER_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+active_timers = load_timers()
+
 
 # Загрузка конфигурации и списка котов
 def load_cats():
@@ -59,7 +79,53 @@ class CatCommands(commands.Cog):
             if "channel" not in cat:
                 cat["channel"] = "global"  # или ctx.channel.name.lower() если известно
         save_cats(cats)
+        load_timers()
 
+    async def load_timers(self):
+        for username, data in list(active_timers.items()):
+            try:
+                remaining = data["end_time"] - time.time()
+                if remaining > 0:
+                    asyncio.create_task(self.resume_timer(username, data["type"], remaining))
+                else:
+                    asyncio.create_task(self.finish_timer(username, data["type"]))
+            except Exception as e:
+                logger.warning(f"🚫 Ошибка запуска таймера {username}: {e}")
+
+    async def resume_timer(self, username, timer_type, delay):
+        await asyncio.sleep(delay)
+        await self.finish_timer(username, timer_type)
+
+    async def finish_timer(self, username, timer_type):
+        cat = cats.get(username)
+        timer = active_timers.get(username)
+        if not cat or not timer:
+            return
+
+        channel_name = timer["channel"]
+        cat["busy"] = False
+        if timer_type == "walk":
+            found_item = random.choice(items) if random.random() < 0.5 else None
+            if found_item:
+                cat["inventory"].append(found_item)
+                cat["experience"] += 20
+                await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} вернулся с прогулки и нашел: {found_item}! 🎁")
+            else:
+                cat["experience"] += 10
+                await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} вернулся с прогулки. 🌿")
+        elif timer_type == "soup":
+            cat["hunger"] -= 10
+            soup_name, (_, price) = random.choice(list(SOUPS.items()))
+            cat["inventory"].append(soup_name)
+            if cat.get("boost_until", 0) > time.time():
+                cat["experience"] += int(10 * 1.5)
+            else:
+                cat["experience"] += 30
+            level_up(cat)
+            await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} сварил {soup_name}! 🍽️")
+        save_cats(cats)
+        active_timers.pop(username, None)
+        save_timers(active_timers)
 
     @commands.command(name="cat", aliases=["cot", "koshka"])
     async def cat_command(self, ctx: commands.Context):
@@ -106,19 +172,13 @@ class CatCommands(commands.Cog):
             await ctx.send(f"@{ctx.author.name} покормил кота {cats[username]['name']} ! 😺")
         
         elif action == "walk":
-            user_id = str(ctx.author.name).lower()
-
             if username not in cats:
                 await ctx.send(f"@{ctx.author.name}, у тебя нет кота.")
                 return
-            
             cat = cats[username]
-
             if cat["busy"]:
                 await ctx.send(f"{ctx.author.name}, твой кот сейчас занят! 😺")
                 return
-
-            # Проверка минимального счастья и чистоты
             if cat["happiness"] < 5:
                 await ctx.send(f"{ctx.author.name}, у твоего кота слишком низкое счастье, чтобы идти гулять! 😺")
                 return
@@ -126,71 +186,42 @@ class CatCommands(commands.Cog):
                 await ctx.send(f"{ctx.author.name}, твой кот слишком грязный для прогулки! 😺")
                 return
 
-            # Устанавливаем кота занятым и запускаем прогулку
             cat["busy"] = True
-            walk_time = 30 * 60  # 30 минут
-
-            # Снижение параметров
             cat["happiness"] -= 5
             cat["cleanliness"] = max(0, cat["cleanliness"] - 10)
-
+            walk_time = 30 * 60
+            end_time = time.time() + walk_time
+            active_timers[username] = {"type": "walk", "end_time": end_time, "channel": ctx.channel.name.lower()}
             save_cats(cats)
+            save_timers(active_timers)
 
             await ctx.send(f"{ctx.author.name}, твой кот отправился на прогулку на 30 минут 🐾")
-
-            await asyncio.sleep(walk_time)
-
-            cat["busy"] = False
-            save_cats(cats)
-
-            found_item = random.choice(items) if random.random() < 0.5 else None
-            if found_item:
-                cat["inventory"].append(found_item)
-                await ctx.send(f"@{ctx.author.name}, кот {cat['name']} вернулся с прогулки и нашел: {found_item}! 🎁")
-            else:
-                await ctx.send(f"@{ctx.author.name}, кот {cat['name']} вернулся с прогулки. 🌿")
-
+            asyncio.create_task(self.resume_timer(username, "walk", walk_time))
 
 
         elif action == "soup":
             if username not in cats:
                 await ctx.send(f"@{ctx.author.name}, у тебя нет кота. 🐾")
                 return
-
             cat = cats[username]
-
             if cat["hunger"] < 10:
                 await ctx.send(f"@{ctx.author.name}, кот {cat['name']} слишком голоден, чтобы варить суп! 🍲")
                 return
-
             if cat["busy"]:
                 await ctx.send(f"@{ctx.author.name}, кот {cat['name']} уже чем-то занят! ⏳")
                 return
 
             cat["busy"] = True
+            soup_time = 45 * 60
+            end_time = time.time() + soup_time
+            active_timers[username] = {"type": "soup", "end_time": end_time, "channel": ctx.channel.name.lower()}
             save_cats(cats)
-            await ctx.send(f"@{ctx.author.name}, кот {cat['name']} начал варить суп! 🍲 Это займет 1 час.")
+            save_timers(active_timers)
 
-            await asyncio.sleep(3600)
+            await ctx.send(f"@{ctx.author.name}, кот {cat['name']} начал варить суп! 🍲 Это займет 45 минут.")
+            asyncio.create_task(self.resume_timer(username, "soup", soup_time))
 
-            cat["busy"] = False
-            cat["hunger"] -= 10
-            soup_name, (_, price) = random.choice(list(SOUPS.items()))
-            cat["inventory"].append(soup_name)
-            if username in cats and cats[username]["boost_until"] > time.time():
-                # Если буст активен, увеличиваем опыт и доход на 50%
-                cat["experience"] += 10 * 1.5  # Увеличиваем опыт
-                # Прочие изменения, связанные с бустами
-            cat["experience"] += 10
-
-            level_up(cat)
-            save_cats(cats)
-
-            await ctx.send(f"@{ctx.author.name}, кот {cat['name']} сварил {soup_name}! 🍽️")
-
-
-
-        
+    
         elif action == "sell":
             if username not in cats:
                 await ctx.send(f"@{ctx.author.name}, у тебя нет кота. 🐾")
@@ -227,14 +258,19 @@ class CatCommands(commands.Cog):
 
         elif action == "cancel":
             if username not in cats:
-                await ctx.send(f"@{ctx.author.name}, у тебя нет кота. 🐾")
+                await ctx.send(f"@{ctx.author.name}, у тебя нет кота.")
                 return
-            if not cats[username]["busy"]:
-                await ctx.send(f"@{ctx.author.name}, кот {cats[username]['name']} ничем не занят.")
+            cat = cats[username]
+            if not cat["busy"]:
+                await ctx.send(f"@{ctx.author.name}, твой кот и так свободен.")
                 return
-            cats[username]["busy"] = False
+
+            cat["busy"] = False
+            if username in active_timers:
+                del active_timers[username]
+                save_timers(active_timers)
             save_cats(cats)
-            await ctx.send(f"@{ctx.author.name}, кот {cats[username]['name']} теперь свободен. 🚫")
+            await ctx.send(f"@{ctx.author.name}, действие кота {cat['name']} отменено. ❌")
 
 
         elif action == "shop":

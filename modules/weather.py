@@ -5,7 +5,7 @@ from modules.profiles import get_mention, get_location
 
 logger = logging.getLogger(__name__)
 
-API_KEY = "**"  # Заменить на свой ключ
+API_KEY = "16bbbd7e4298dfc2e0e6c39b11ff5741"  # Заменить на свой ключ
 API_URL = "http://api.openweathermap.org/data/2.5/weather"
 
 class WeatherCommands(commands.Cog):
