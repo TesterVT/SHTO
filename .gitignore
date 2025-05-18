@@ -10,3 +10,4 @@
 /__pycache__
 modules/weather.py
 modules/AI.py
+cat_timers.json

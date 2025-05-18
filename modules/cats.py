@@ -92,6 +92,23 @@ class CatCommands(commands.Cog):
             except Exception as e:
                 logger.warning(f"🚫 Ошибка запуска таймера {username}: {e}")
 
+    async def load_random_story(self, filename, cat_name, friend_name=None, item_name=None):
+        path = f"data/post_walk_events/{filename}"
+        try:
+            with open(path, encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+            if not lines:
+                return ""
+            text = random.choice(lines)
+            text = text.replace("{cat}", cat_name)
+            if friend_name:
+                text = text.replace("{friend}", friend_name)
+            if item_name:
+                text = text.replace("{item}", item_name)
+            return text
+        except FileNotFoundError:
+            return ""
+
     async def resume_timer(self, username, timer_type, delay):
         await asyncio.sleep(delay)
         await self.finish_timer(username, timer_type)
@@ -104,15 +121,32 @@ class CatCommands(commands.Cog):
 
         channel_name = timer["channel"]
         cat["busy"] = False
+
         if timer_type == "walk":
             found_item = random.choice(items) if random.random() < 0.5 else None
+            story_file = ""
+            story_context = {}
+
             if found_item:
                 cat["inventory"].append(found_item)
                 cat["experience"] += 20
-                await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} вернулся с прогулки и нашел: {found_item}! 🎁")
+                story_file = "item_found.txt"
+                story_context["item"] = found_item
             else:
                 cat["experience"] += 10
-                await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} вернулся с прогулки. 🌿")
+                # Попытка встретить друга
+                if cat.get("friends") and random.random() < 0.4:
+                    friend = random.choice(cat["friends"])
+                    story_file = "friend_meeting.txt"
+                    story_context["friend"] = friend
+                else:
+                    story_file = "nothing_happened.txt"
+
+            # Загрузка и отправка истории
+            story = await self.load_random_story(story_file, cat["name"], story_context.get("friend"), story_context.get("item"))
+            if story:
+                await self.bot.get_channel(channel_name).send(f"@{username}, {story}")
+
         elif timer_type == "soup":
             cat["hunger"] -= 10
             soup_name, (_, price) = random.choice(list(SOUPS.items()))
@@ -122,10 +156,14 @@ class CatCommands(commands.Cog):
             else:
                 cat["experience"] += 30
             level_up(cat)
-            await self.bot.get_channel(channel_name).send(f"@{username}, кот {cat['name']} сварил {soup_name}! 🍽️")
+            await self.bot.get_channel(channel_name).send(
+                f"@{username}, кот {cat['name']} сварил {soup_name}! 🍽️"
+            )
+
         save_cats(cats)
         active_timers.pop(username, None)
         save_timers(active_timers)
+
 
     @commands.command(name="cat", aliases=["cot", "koshka"])
     async def cat_command(self, ctx: commands.Context):
@@ -189,7 +227,7 @@ class CatCommands(commands.Cog):
             cat["busy"] = True
             cat["happiness"] -= 5
             cat["cleanliness"] = max(0, cat["cleanliness"] - 10)
-            walk_time = 30 * 60
+            walk_time = 60 * 30
             end_time = time.time() + walk_time
             active_timers[username] = {"type": "walk", "end_time": end_time, "channel": ctx.channel.name.lower()}
             save_cats(cats)
