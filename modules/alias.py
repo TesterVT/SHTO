@@ -5,6 +5,7 @@ import time
 import re
 import aiohttp
 from twitchio.ext import commands
+from py_mini_racer import py_mini_racer
 
 user_say_cooldowns = {}  # username: last_used_time
 COOLDOWN_SECONDS = 5
@@ -28,36 +29,62 @@ class AliasCommands(commands.Cog):
         )''')
         self.db.commit()
 
+
     @staticmethod
-    async def fetch_js_from_gist(gist_id, function_call):
-        """Загружает JS-код из Gist и выполняет его через Deno."""
-        gist_url = f"https://gist.githubusercontent.com/raw/{gist_id}"
+    async def fetch_js_from_gist(gist_url, func, args_list, message):
+        """
+        Загружает JS-код из GitHub Gist и выполняет указанную функцию с аргументами.
+        Возвращает результат выполнения в виде строки.
+        """
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(gist_url) as response:
-                    if response.status != 200:
-                        return f"⚠️ Gist не найден: {gist_id}"
-                    js_code = await response.text()
+            # Извлечение ID gist-а
+            match = re.search(r"gist\.github\.com/(?:[^/]+/)?([a-f0-9]+)", gist_url)
+            if not match:
+                return "❌ Неверная ссылка на Gist."
+            gist_id = match.group(1)
 
-            deno_payload = {
-                "files": {"main.js": js_code},
-                "stdin": "",
-                "language": "javascript",
-                "args": [],
-                "run_timeout": 3000,
-                "compile_timeout": 3000,
-                "compile_memory_limit": -1,
-                "run_memory_limit": -1,
-            }
-
-            # Используем JDoodle или REPL.it API, либо свой сервер с Deno (здесь псевдозапрос)
-            # Замените URL на настоящий если у вас есть сервер для запуска JS
+            # Получение содержимого Gist
             async with aiohttp.ClientSession() as session:
-                async with session.post("https://emulated-deno-server/execute", json=deno_payload) as resp:
-                    result = await resp.json()
-                    return result.get("stdout", "⚠️ Ошибка выполнения JS")
+                async with session.get(f"https://api.github.com/gists/{gist_id}") as resp:
+                    if resp.status != 200:
+                        return f"❌ Не удалось загрузить Gist (HTTP {resp.status})"
+                    data = await resp.json()
+
+            # Используем первый найденный .js файл
+            js_file = next((file["content"] for file in data["files"].values() if file["filename"].endswith(".js")), None)
+            if js_file is None:
+                return "❌ В Gist нет JS-файла."
+
+            # Подготовка аргументов для JS — сериализация в JSON
+            import json
+            # Сериализуем список аргументов
+            args_json = json.dumps(args_list)  # Превратит ['яблоко', 'банан'] в '["яблоко","банан"]'
+            # Имя пользователя из сообщения (автора)
+            username_json = json.dumps(message.author.name)  # в кавычках и экранировано
+
+            # Формируем JS-код с вызовом функции func(args_list, username)
+            # например: main_result = main(["яблоко","банан"], "TesterVT");
+            function_call = f"main_result = {func}({args_json}, {username_json});"
+
+            # Собираем полный код для выполнения
+            full_code = f"{js_file}\n{function_call}\n"
+
+            # Создаём контекст PyMiniRacer
+            ctx = py_mini_racer.MiniRacer()
+
+            # Выполняем весь JS-код
+            ctx.eval(full_code)
+
+            # Получаем результат
+            result = ctx.eval("main_result")
+
+            # Если результат — Promise, PyMiniRacer не сможет его обработать, 
+            # поэтому нужно, чтобы JS-функция была синхронной (см. пояснения ниже)
+
+            return str(result)
+
         except Exception as e:
-            return f"⚠️ Ошибка JS: {e}"
+            return f"❌ Ошибка при выполнении JS: {e}"
 
     @staticmethod
     async def handle_custom_alias(bot, message):
@@ -95,12 +122,13 @@ class AliasCommands(commands.Cog):
                 commands.append(command)
 
         for command in commands:
-            # Обработка вызова JS через gist
             if command.startswith("js importGist:"):
                 match = re.match(r'js importGist:(\w+)\s+function:"(.+?)"', command)
                 if match:
                     gist_id, func = match.groups()
-                    js_result = await AliasCommands.fetch_js_from_gist(gist_id, func)
+                    gist_url = f"https://gist.github.com/{gist_id}"
+
+                    js_result = await AliasCommands.fetch_js_from_gist(gist_url, func, args_list, message)
                     formatted = f"say {js_result.strip()}"
                 else:
                     formatted = "say ⚠️ Неверный формат команды js importGist"
@@ -160,7 +188,12 @@ class AliasCommands(commands.Cog):
             for command in command_list:
                 if command.startswith("replace "):
                     continue  # Пропускаем проверку фильтров
-                if not any(command.startswith(a.split(" ")[0]) for a in ALLOWED_SUBCOMMANDS):
+                if command.startswith("js importGist:"):
+                    match = re.match(r'js importGist:\w+\s+function:"(.+?)"', command)
+                    if not match:
+                        await ctx.send(f"⚠️ Неверный формат JS-команды.")
+                        return
+                elif not any(command.startswith(a.split(" ")[0]) for a in ALLOWED_SUBCOMMANDS):
                     await ctx.send(f"⚠️ Команда `{command}` не разрешена.")
                     return
 

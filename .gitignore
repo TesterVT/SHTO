@@ -11,3 +11,6 @@
 modules/weather.py
 modules/AI.py
 cat_timers.json
+modules/__pycache__/AI.cpython-312.pyc
+modules/__pycache__/alias.cpython-312.pyc
+modules/__pycache__/cats.cpython-312.pyc

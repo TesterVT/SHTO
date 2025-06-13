@@ -91,7 +91,7 @@ class AiCommands(commands.Cog):
         
         try:
             headers = {
-                "Authorization": "Bearer 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",
+                "Authorization": "Bearer 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",
                 "Content-Type": "application/json"
             }
 
@@ -152,7 +152,7 @@ class AiCommands(commands.Cog):
             )
 
             headers = {
-                "Authorization": "Bearer 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",  # твой ключ
+                "Authorization": "Bearer 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",  # твой ключ
                 "Content-Type": "application/json"
             }
 
