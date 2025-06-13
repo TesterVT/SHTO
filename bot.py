@@ -16,6 +16,8 @@ import aiosqlite
 from data import config_loader
 from modules.profiles import upsert_profile
 from modules.filter import FilterModule
+import sys
+
 
 TOKEN = config_loader.get_token()
 CHANNELS = config_loader.get_channels()
@@ -119,9 +121,10 @@ class TwitchBot(commands.Bot):
                 return
 
 
-        if hasattr(bot.get_cog("AdminCommands"), "is_ignored"):
-            if bot.get_cog("AdminCommands").is_ignored(message.author.name.lower()):
-                return
+        admin_cog = self.get_cog("AdminCommands")
+        if hasattr(admin_cog, "is_ignored") and admin_cog.is_ignored(message.author.name.lower()):
+            return
+
 
         logger.info(f"[{message.author.name}]: {message.content}")
 
@@ -165,13 +168,17 @@ class TwitchBot(commands.Bot):
                     logger.info(f"Отправлен эмоут: {random_emote}")
 
 
-while True:
-    try:
-        bot = TwitchBot()
-        bot.run()
-    except (aiohttp.ClientConnectionError, ConnectionResetError, asyncio.CancelledError) as e:
-        logger.warning(f"🔌 Потеря соединения с Twitch: {e}. Перезапуск через 10 секунд...")
-        time.sleep(10)
-    except Exception as e:
-        logger.exception("❌ Неизвестная ошибка, бот будет перезапущен через 30 секунд")
-        time.sleep(30)
+def run_bot_forever():
+    while True:
+        try:
+            bot = TwitchBot()
+            bot.run()  # без await
+        except (aiohttp.ClientConnectionError, ConnectionResetError, asyncio.CancelledError) as e:
+            logger.warning(f"🔌 Потеря соединения с Twitch: {e}. Перезапуск через 10 секунд...")
+            time.sleep(10)
+        except Exception as e:
+            logger.exception("❌ Неизвестная ошибка, бот будет перезапущен через 30 секунд")
+            time.sleep(30)
+
+if __name__ == "__main__":
+    run_bot_forever()
