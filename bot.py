@@ -159,26 +159,27 @@ class TwitchBot(commands.Bot):
 
     async def periodic_emote_update(self):
         while True:
-            await asyncio.sleep(600)  # Каждые 10 минут
-            if emotes_list:
-                random_emote = random.choice(emotes_list)
-                channel = self.get_channel(OWNER_CHANNEL)
-                if channel:
-                    await channel.send(random_emote)
-                    logger.info(f"Отправлен эмоут: {random_emote}")
+            try:
+                await asyncio.sleep(600)
+                if emotes_list:
+                    random_emote = random.choice(emotes_list)
+                    channel = self.get_channel(OWNER_CHANNEL)
+                    if channel:
+                        await channel.send(random_emote)
+                        logger.info(f"Отправлен эмоут: {random_emote}")
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка в periodic_emote_update: {e}")
 
 
 def run_bot_forever():
     while True:
         try:
             bot = TwitchBot()
-            bot.run()  # без await
-        except (aiohttp.ClientConnectionError, ConnectionResetError, asyncio.CancelledError) as e:
-            logger.warning(f"🔌 Потеря соединения с Twitch: {e}. Перезапуск через 10 секунд...")
-            time.sleep(10)
+            bot.run()
         except Exception as e:
-            logger.exception("❌ Неизвестная ошибка, бот будет перезапущен через 30 секунд")
-            time.sleep(30)
+            logger.exception("❌ Ошибка в основном цикле, перезапуск через 10 сек")
+            time.sleep(10)
 
 if __name__ == "__main__":
     run_bot_forever()
+
