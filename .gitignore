@@ -14,3 +14,5 @@ cat_timers.json
 modules/__pycache__/AI.cpython-312.pyc
 modules/__pycache__/alias.cpython-312.pyc
 modules/__pycache__/cats.cpython-312.pyc
+afk_storage.db
+cat_timers.json

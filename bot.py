@@ -17,6 +17,7 @@ from data import config_loader
 from modules.profiles import upsert_profile
 from modules.filter import FilterModule
 import sys
+import sqlite3
 
 
 TOKEN = config_loader.get_token()
@@ -91,10 +92,14 @@ class TwitchBot(commands.Bot):
         if username in afk_times:
             duration = now - afk_times.pop(username)
             await message.channel.send(f"@{message.author.name} вернулся из AFK. Был AFK {str(duration).split('.')[0]}")
+            with sqlite3.connect("afk_storage.db") as conn:
+                conn.execute("DELETE FROM afk_users WHERE username = ?", (username,))
 
         if username in sleep_times:
             duration = now - sleep_times.pop(username)
             await message.channel.send(f"@{message.author.name} проснулся после сна. Спал {str(duration).split('.')[0]}")
+            with sqlite3.connect("afk_storage.db") as conn:
+                conn.execute("DELETE FROM afk_users WHERE username = ?", (username,))
 
         if admin.echo_user and username == admin.echo_user:
             if self.filter.check_message(message.content):
